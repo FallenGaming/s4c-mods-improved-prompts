@@ -9,7 +9,7 @@ var PORTRAIT_TAGS = ['portrait']
 
 # Slot iteration order for equipment prompt generation.
 # ass, crotch, underwear are at the end and conditionally skipped when legs are equipped.
-var EQUIPMENT_SLOT_ORDER = ['chest', 'hands', 'head', 'neck', 'legs', 'rhand', 'lhand', 'tool', 'underwear', 'ass', 'crotch']
+var EQUIPMENT_SLOT_ORDER = ['chest', 'hands', 'head', 'neck', 'legs', 'rhand', 'lhand', 'underwear', 'ass', 'crotch']
 var LEGS_BLOCKED_SLOTS = ['ass', 'crotch', 'underwear']
 
 var NUDE_TAGS = {
@@ -348,7 +348,7 @@ func build_equipment_prompt(character):
     var phrases = []
 
     for slot in EQUIPMENT_SLOT_ORDER:
-        var item_id = gear[slot]
+        var item_id = gear.get(slot, null)
         if item_id == null:
             continue
         if has_legs and slot in LEGS_BLOCKED_SLOTS:
@@ -373,8 +373,6 @@ func build_equipment_prompt(character):
                 phrases.append('holding a %s in %s right hand' % [desc, poss])
             'lhand':
                 phrases.append('holding a %s in %s left hand' % [desc, poss])
-            # 'tool':
-            #     phrases.append('carrying a %s' % desc)
 
     return ', '.join(phrases)
 
