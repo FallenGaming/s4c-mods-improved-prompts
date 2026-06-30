@@ -103,6 +103,9 @@ var _ATTRIBUTE_OVERRIDES = {
     },
     'garb_of_forest': {
         'description': 'an enchanted armour made of leaves and bark'
+    },
+    'club': {
+        'description': 'thick rough wooden club'
     }
 }
 
