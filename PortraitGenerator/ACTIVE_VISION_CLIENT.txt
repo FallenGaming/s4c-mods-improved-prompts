@@ -1,0 +1,5 @@
+Expected startup marker after PR #10 is merged and installed:
+
+[PortraitGenerator][OutfitVision] Active client: no-think-v5
+
+If this line is missing, the game is still loading the older line-protocol client.
