@@ -42,7 +42,11 @@ var _NON_OUTFIT_EXACT_TAGS = {
     'average build': true,
     'curvy': true,
     'wide hips': true,
+    'very wide hips': true,
     'narrow hips': true,
+    'broad hips': true,
+    'curvy hips': true,
+    'thick thighs': true,
     'anime': true,
     '2d': true,
     'game sprite': true
@@ -67,8 +71,6 @@ var _NON_OUTFIT_BODY_WORDS = {
     'mustache': true,
     'breast': true,
     'breasts': true,
-    'hip': true,
-    'hips': true,
     'height': true
 }
 
