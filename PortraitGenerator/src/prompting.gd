@@ -4,7 +4,7 @@ var races
 var items
 var _alpha_regex = null
 
-var CLOTHED_TAGS = ['fully clothed']
+var CLOTHED_TAGS = ['clothed']
 var PORTRAIT_TAGS = ['portrait']
 
 # Slot iteration order for equipment prompt generation.
@@ -342,7 +342,8 @@ func to_alpha(value):
 
 func build_equipment_prompt(character):
     var gear = character.equipment.gear
-    var poss = 'his' if character.get_stat('sex') == 'male' else 'her'
+    var sex = character.get_stat('sex')
+    var poss = 'his' if sex == 'male' else 'her'
     var has_legs = gear.legs != null
     var seen_item_ids = {}
     var phrases = []
@@ -358,23 +359,34 @@ func build_equipment_prompt(character):
         seen_item_ids[item_id] = true
 
         var item = ResourceScripts.game_res.items[item_id]
-        var desc = items.item_description(item)
+        var desc = items.item_description(item, sex, slot)
+        items.report_unmapped(item, sex, slot)
 
         match slot:
             'head':
-                phrases.append('wearing %s on %s head' % [desc, poss])
+                phrases.append('wearing %s on %s head' % [_with_indefinite_article(desc), poss])
             'neck':
-                phrases.append('wearing a %s around %s neck' % [desc, poss])
+                phrases.append('wearing %s around %s neck' % [_with_indefinite_article(desc), poss])
             'chest', 'legs', 'underwear', 'ass', 'crotch':
                 phrases.append('wearing %s' % desc)
             'hands':
                 phrases.append('wearing %s on %s hands' % [desc, poss])
             'rhand':
-                phrases.append('holding a %s in %s right hand' % [desc, poss])
+                phrases.append('holding %s in %s right hand' % [_with_indefinite_article(desc), poss])
             'lhand':
-                phrases.append('holding a %s in %s left hand' % [desc, poss])
+                phrases.append('holding %s in %s left hand' % [_with_indefinite_article(desc), poss])
 
     return ', '.join(phrases)
+
+func _with_indefinite_article(desc):
+    var lower_desc = desc.to_lower()
+    if lower_desc.begins_with('a ') or lower_desc.begins_with('an '):
+        return desc
+
+    var article = 'a'
+    if lower_desc.length() > 0 and lower_desc.substr(0, 1) in ['a', 'e', 'i', 'o', 'u']:
+        article = 'an'
+    return '%s %s' % [article, desc]
 
 func futa_have_balls():
     return input_handler.globalsettings.futa_balls

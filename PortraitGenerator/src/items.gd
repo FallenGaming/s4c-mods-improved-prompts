@@ -103,7 +103,43 @@ var _ATTRIBUTE_OVERRIDES = {
     },
     'garb_of_forest': {
         'description': 'an enchanted armour made of leaves and bark'
+    }
+}
+
+# Crafted materials do not recolor the game's clothing sprites. These visual families
+# describe the fixed sprite design instead of treating crafting parts as literal trim.
+# Add aliases here as new item base IDs are discovered during testing.
+var _VISUAL_FAMILY_ALIASES = {
+    'robe': 'robe',
+    'cloth_robe': 'robe',
+    'clothrobe': 'robe',
+    'pants': 'pants',
+    'cloth_pants': 'pants',
+    'clothpants': 'pants'
+}
+
+var _VISUAL_FAMILIES = {
+    'robe': {
+        'female': 'cropped charcoal-gray sleeveless fantasy tunic, deep plunging neckline, dark red short shoulder cape, shoulder guards, exposed cleavage, exposed midriff, covered nipples, blue hanging sash pouch at her right hip',
+        'futa': 'cropped charcoal-gray sleeveless fantasy tunic, deep plunging neckline, dark red short shoulder cape, shoulder guards, exposed cleavage, exposed midriff, covered nipples, blue hanging sash pouch at her right hip',
+        'male': 'charcoal-gray sleeveless fantasy tunic with a dark red short shoulder cape and shoulder guards',
+        'default': 'charcoal-gray fantasy tunic with a dark red short shoulder cape'
     },
+    'pants': {
+        'female': 'short dark brown flared fantasy skirt with pale blue edging, bare thighs',
+        'futa': 'short dark brown flared fantasy skirt with pale blue edging, bare thighs',
+        'male': 'dark brown fitted cloth trousers with pale blue edging',
+        'default': 'dark brown fantasy legwear with pale blue edging'
+    }
+}
+
+# Secondary crafting parts that affect item construction or stats but are not visibly
+# represented on clothing sprites. In particular, ArmorTrim must never become phrases
+# such as "wooden trim" or "stone trim" in image prompts.
+var _NON_VISUAL_CRAFTING_PARTS = {
+    'ArmorTrim': true,
+    'ArmorEnc': true,
+    'ArmorCloth': true
 }
 
 var _PART_LABELS = {
@@ -111,30 +147,95 @@ var _PART_LABELS = {
     'ToolHandle': 'handle',
     'ToolBlade': 'blade',
     'ToolClothwork': 'cloth',
-    'ArmorTrim': 'trim',
     'BowTrim': 'trim',
-    'ArmorEnc': 'accent',
     'WeaponEnc': 'accent',
-    'ArmorCloth': 'cloth lining',
-    'JewelryGem': 'gem',
+    'JewelryGem': 'gem'
 }
 
-func item_description(item):
-    if item.code in _ATTRIBUTE_OVERRIDES.keys() or item.itembase in _ATTRIBUTE_OVERRIDES.keys():
-        return _ATTRIBUTE_OVERRIDES.get(item.code, _ATTRIBUTE_OVERRIDES.get(item.itembase, {})).get('description', '')
+var _reported_unmapped = {}
+
+func item_description(item, sex = '', slot = ''):
+    var attribute_desc = _attribute_override_description(item)
+    if attribute_desc != '':
+        return attribute_desc
+
+    var visual_desc = _visual_family_description(item, sex)
+    if visual_desc != '':
+        return visual_desc
+
     return _generic_item_desc(item)
+
+func has_visual_mapping(item):
+    if _attribute_override_description(item) != '':
+        return true
+    return _visual_family_for_item(item) != ''
+
+func report_unmapped(item, sex, slot):
+    if has_visual_mapping(item):
+        return
+
+    var report_key = '%s|%s|%s' % [slot, str(item.code), str(item.itembase)]
+    if _reported_unmapped.has(report_key):
+        return
+    _reported_unmapped[report_key] = true
+
+    print('[PortraitGenerator][OutfitPrompt] Unmapped equipment: slot=%s sex=%s code=%s itembase=%s name=%s parts=%s' % [
+        slot,
+        sex,
+        str(item.code),
+        str(item.itembase),
+        str(item.name),
+        str(item.parts)
+    ])
+
+func _attribute_override_description(item):
+    var override = _ATTRIBUTE_OVERRIDES.get(item.code, null)
+    if override == null:
+        override = _ATTRIBUTE_OVERRIDES.get(item.itembase, null)
+    if override == null:
+        return ''
+    return override.get('description', '')
+
+func _visual_family_description(item, sex):
+    var family = _visual_family_for_item(item)
+    if family == '':
+        return ''
+
+    var family_data = _VISUAL_FAMILIES.get(family, {})
+    if family_data.has(sex):
+        return family_data.get(sex, '')
+    return family_data.get('default', '')
+
+func _visual_family_for_item(item):
+    var lookup_keys = [
+        _normalize_key(str(item.code)),
+        _normalize_key(str(item.itembase)),
+        _normalize_key(str(item.name))
+    ]
+
+    for lookup_key in lookup_keys:
+        if _VISUAL_FAMILY_ALIASES.has(lookup_key):
+            return _VISUAL_FAMILY_ALIASES[lookup_key]
+    return ''
+
+func _normalize_key(value):
+    return value.strip_edges().to_lower().replace(' ', '_').replace('-', '_')
 
 func _generic_item_desc(item):
     var desc = item.name.to_lower()
     if item.parts.empty():
         return desc
+
     var primary_part = Items.itemlist[item.itembase].get('partmaterialname', '')
     var suffixes = []
     for part_key in item.parts:
         if part_key == primary_part:
             continue
+        if _NON_VISUAL_CRAFTING_PARTS.has(part_key):
+            continue
         if not _PART_LABELS.has(part_key):
             continue
+
         var mat_code = item.parts[part_key]
         if not Items.materiallist.has(mat_code):
             continue
@@ -142,6 +243,7 @@ func _generic_item_desc(item):
         if not mat.has('adjective') or mat.adjective == '':
             continue
         suffixes.append('%s %s' % [mat.adjective.to_lower(), _PART_LABELS[part_key]])
+
     if not suffixes.empty():
         desc += ' with ' + ' and '.join(suffixes)
     return desc
