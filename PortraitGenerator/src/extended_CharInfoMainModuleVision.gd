@@ -1,4 +1,4 @@
-extends "res://mods/PortraitGenerator/src/extended_CharInfoMainModule.gd"
+extends "extended_CharInfoMainModule.gd"
 
 # Adds local AI outfit analysis to the existing PortraitGenerator panel without
 # modifying the large base extension script. The displayed character region is
@@ -8,6 +8,7 @@ const DEFAULT_VISION_URL = "http://127.0.0.1:11434"
 const DEFAULT_VISION_MODEL = "qwen3-vl:4b"
 const VISION_MAX_DIMENSION = 1024
 const VISION_MIN_DIMENSION = 640
+const LAST_CAPTURE_PATH = "user://portrait_generator_outfit_capture.png"
 
 var outfit_vision_client = null
 var vision_url_input = null
@@ -15,6 +16,7 @@ var vision_model_input = null
 var vision_analyze_button = null
 var vision_reanalyze_button = null
 var vision_status_label = null
+var _vision_negative_tags = []
 
 func _ready():
     ._ready()
@@ -106,6 +108,7 @@ func _save_ui_settings():
     var data = util.read_settings()
     data["vision_url"] = vision_url_input.text.strip_edges()
     data["vision_model"] = vision_model_input.text.strip_edges()
+    data["vision_negative_tags"] = _vision_negative_tags
     util.save_settings(data)
 
 func _load_ui_settings():
@@ -115,6 +118,8 @@ func _load_ui_settings():
     var data = util.read_settings()
     vision_url_input.set_text(str(data.get("vision_url", DEFAULT_VISION_URL)))
     vision_model_input.set_text(str(data.get("vision_model", DEFAULT_VISION_MODEL)))
+    var saved_negative_tags = data.get("vision_negative_tags", [])
+    _vision_negative_tags = saved_negative_tags if saved_negative_tags is Array else []
 
 func _on_analyze_outfit_pressed(force_refresh):
     if outfit_vision_client == null:
@@ -151,6 +156,9 @@ func _on_analyze_outfit_pressed(force_refresh):
         _set_vision_buttons_disabled(false)
         _on_outfit_analysis_error("Could not capture the displayed character region")
         return
+
+    # Keep the most recent crop so the user can verify exactly what the model saw.
+    image.save_png(LAST_CAPTURE_PATH)
 
     var equipment_context = _build_equipment_context(active_person)
     var model_name = vision_model_input.text.strip_edges()
@@ -266,6 +274,14 @@ func _prepare_vision_image(image):
         prepared.resize(new_width, new_height, interpolation)
     return prepared
 
+func _format_item_parts(item):
+    var parts = []
+    var part_keys = item.parts.keys()
+    part_keys.sort()
+    for part_key in part_keys:
+        parts.append("%s=%s" % [str(part_key), str(item.parts[part_key])])
+    return ", ".join(parts)
+
 func _build_equipment_context(character):
     var gear = character.equipment.gear
     var slot_order = ['chest', 'hands', 'head', 'neck', 'legs', 'rhand', 'lhand', 'underwear', 'ass', 'crotch']
@@ -279,18 +295,12 @@ func _build_equipment_context(character):
         seen_item_ids[item_id] = true
 
         var item = ResourceScripts.game_res.items[item_id]
-        var parts = []
-        var part_keys = item.parts.keys()
-        part_keys.sort()
-        for part_key in part_keys:
-            parts.append("%s=%s" % [str(part_key), str(item.parts[part_key])])
-
         lines.append("- slot=%s; name=%s; base_id=%s; code=%s; crafting_parts={%s}" % [
             slot,
             str(item.name),
             str(item.itembase),
             str(item.code),
-            ", ".join(parts)
+            _format_item_parts(item)
         ])
 
     if lines.empty():
@@ -300,7 +310,11 @@ func _build_equipment_context(character):
 func _build_equipment_signature(character):
     var gear = character.equipment.gear
     var slot_order = ['chest', 'hands', 'head', 'neck', 'legs', 'rhand', 'lhand', 'underwear', 'ass', 'crotch']
-    var components = ["sex=%s" % str(character.get_stat('sex'))]
+    var components = [
+        "sex=%s" % str(character.get_stat('sex')),
+        "race=%s" % str(character.get_stat('race')),
+        "body_image=%s" % str(character.get_stat('body_image'))
+    ]
     var seen_item_ids = {}
 
     for slot in slot_order:
@@ -309,7 +323,7 @@ func _build_equipment_signature(character):
             continue
         seen_item_ids[item_id] = true
         var item = ResourceScripts.game_res.items[item_id]
-        components.append("%s=%s:%s:%s" % [slot, str(item.itembase), str(item.name), str(item.parts)])
+        components.append("%s=%s:%s:%s" % [slot, str(item.itembase), str(item.name), _format_item_parts(item)])
     return "|".join(components)
 
 func _on_outfit_analysis_complete(result, from_cache):
@@ -318,7 +332,7 @@ func _on_outfit_analysis_complete(result, from_cache):
     var positive_tags = result.get("positive_tags", [])
     var negative_tags = result.get("negative_tags", [])
     clothing_input.set_text(", ".join(positive_tags))
-    _append_unique_negative_tags(negative_tags)
+    _replace_vision_negative_tags(negative_tags)
     _generate_prompts(true)
 
     var confidence = int(round(float(result.get("confidence", 0.0)) * 100.0))
@@ -329,25 +343,35 @@ func _on_outfit_analysis_complete(result, from_cache):
         status += ": " + summary
     _on_outfit_analysis_status(status)
 
-func _append_unique_negative_tags(tags):
+func _replace_vision_negative_tags(tags):
     if negative_input == null or not (tags is Array):
         return
 
-    var current = negative_input.text.strip_edges()
-    var current_lower = current.to_lower()
-    var additions = []
+    var previous = {}
+    for old_tag in _vision_negative_tags:
+        previous[str(old_tag).strip_edges().to_lower()] = true
+
+    var combined = []
+    var seen = {}
+    for entry in negative_input.text.split(","):
+        var existing_tag = str(entry).strip_edges()
+        var existing_key = existing_tag.to_lower()
+        if existing_tag == "" or previous.has(existing_key) or seen.has(existing_key):
+            continue
+        seen[existing_key] = true
+        combined.append(existing_tag)
+
+    _vision_negative_tags = []
     for entry in tags:
         var tag = str(entry).strip_edges()
-        if tag == "" or current_lower.find(tag.to_lower()) >= 0:
+        var key = tag.to_lower()
+        if tag == "" or seen.has(key):
             continue
-        additions.append(tag)
-        current_lower += ", " + tag.to_lower()
+        seen[key] = true
+        combined.append(tag)
+        _vision_negative_tags.append(tag)
 
-    if additions.empty():
-        return
-    if current != "":
-        current += ", "
-    negative_input.set_text(current + ", ".join(additions))
+    negative_input.set_text(", ".join(combined))
 
 func _on_outfit_analysis_status(message):
     if vision_status_label != null:
